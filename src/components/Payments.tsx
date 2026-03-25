@@ -522,9 +522,9 @@ export default function Payments() {
                   ))}
                 </select>
               </div>
-              <div className="bg-emerald-50 p-4 rounded-2xl flex flex-col justify-center">
-                <p className="text-[10px] font-bold text-emerald-600 uppercase">Total Pago</p>
-                <p className="text-xl font-black text-emerald-700">R$ {totalPaidInReport.toFixed(2)}</p>
+              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-100 flex flex-col justify-center">
+                <p className="text-[10px] font-bold text-neutral-400 uppercase">Total Pago</p>
+                <p className="text-xl font-black text-emerald-600">R$ {totalPaidInReport.toFixed(2)}</p>
               </div>
             </div>
 
@@ -716,91 +716,90 @@ export default function Payments() {
               <h3 className="text-xl font-bold text-neutral-900 mb-6">Novo Lançamento de Vouchers</h3>
               
               <div className="space-y-6 overflow-y-auto pr-2">
-                <form onSubmit={handleSettlementVoucherSearch} className="space-y-2">
-                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Buscar por Número do Voucher</label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="text"
-                      placeholder="Digite o número do voucher..."
-                      value={settlementVoucherSearch}
-                      onChange={(e) => setSettlementVoucherSearch(e.target.value)}
-                      className="flex-1 px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <button 
-                      type="submit"
-                      className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-100 transition-all flex items-center gap-2"
-                    >
-                      <Search size={18} />
-                      Buscar
-                    </button>
-                  </div>
-                </form>
+                <div className="bg-neutral-50 p-6 rounded-2xl border border-neutral-200">
+                  <form onSubmit={handleSettlementVoucherSearch} className="space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Ticket size={16} className="text-emerald-600" />
+                      <label className="text-xs font-bold text-neutral-900 uppercase tracking-wider">Adicionar Voucher por Número</label>
+                    </div>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text"
+                        placeholder="Ex: 123456"
+                        value={settlementVoucherSearch}
+                        onChange={(e) => setSettlementVoucherSearch(e.target.value)}
+                        className="flex-1 px-4 py-3 bg-white border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                      />
+                      <button 
+                        type="submit"
+                        className="px-6 py-3 bg-neutral-900 text-white rounded-xl font-bold hover:bg-neutral-800 transition-all flex items-center gap-2"
+                      >
+                        <Plus size={18} />
+                        Adicionar
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-neutral-400 italic">Dica: Digite o número e aperte Enter para adicionar rapidamente.</p>
+                  </form>
+                </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Motorista / Unidade</label>
-                  <select 
-                    value={settlementDriverId}
-                    onChange={(e) => {
-                      setSettlementDriverId(e.target.value);
-                      setSelectedVoucherIds([]);
-                    }}
-                    className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="">Selecione o motorista...</option>
-                    {drivers.map(d => (
-                      <option key={d.id} value={d.id}>{d.unitNumber} - {d.name}</option>
-                    ))}
-                  </select>
+                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Motorista Selecionado</label>
+                  <div className="flex items-center gap-3 p-4 bg-neutral-50 border border-neutral-200 rounded-xl">
+                    <User size={20} className="text-neutral-400" />
+                    {settlementDriverId ? (
+                      <div>
+                        <p className="text-sm font-bold text-neutral-900">
+                          {drivers.find(d => d.id === settlementDriverId)?.unitNumber} - {drivers.find(d => d.id === settlementDriverId)?.name}
+                        </p>
+                        <p className="text-[10px] text-neutral-400 font-bold uppercase">
+                          {drivers.find(d => d.id === settlementDriverId)?.licensePlate}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-neutral-400 italic">Nenhum motorista identificado. Adicione um voucher primeiro.</p>
+                    )}
+                  </div>
                 </div>
 
                 {settlementDriverId && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Vouchers Disponíveis</label>
+                      <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Vouchers no Lançamento ({selectedVoucherIds.length})</label>
                       <button 
                         onClick={() => {
-                          const available = vouchers.filter(v => {
-                            const ride = rides.find(r => r.id === v.rideId);
-                            return ride?.driverId === settlementDriverId && v.status === 'active';
-                          });
-                          setSelectedVoucherIds(available.map(v => v.id));
+                          setSettlementDriverId('');
+                          setSelectedVoucherIds([]);
                         }}
-                        className="text-xs font-bold text-emerald-600 hover:text-emerald-700"
+                        className="text-xs font-bold text-red-500 hover:text-red-600"
                       >
-                        Selecionar Todos
+                        Limpar Tudo
                       </button>
                     </div>
                     <div className="grid grid-cols-1 gap-2">
-                      {vouchers.filter(v => {
-                        const ride = rides.find(r => r.id === v.rideId);
-                        return ride?.driverId === settlementDriverId && v.status === 'active';
-                      }).map(v => {
-                        const ride = rides.find(r => r.id === v.rideId);
+                      {selectedVoucherIds.map(vId => {
+                        const v = vouchers.find(voc => voc.id === vId);
+                        const ride = rides.find(r => r.id === v?.rideId);
                         return (
-                          <label key={v.id} className={cn(
-                            "flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all",
-                            selectedVoucherIds.includes(v.id) ? "border-emerald-500 bg-emerald-50" : "border-neutral-100 bg-white hover:border-neutral-200"
-                          )}>
+                          <div key={vId} className="flex items-center justify-between p-4 rounded-xl border border-emerald-100 bg-emerald-50/30">
                             <div className="flex items-center gap-3">
-                              <input 
-                                type="checkbox"
-                                checked={selectedVoucherIds.includes(v.id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedVoucherIds([...selectedVoucherIds, v.id]);
-                                  } else {
-                                    setSelectedVoucherIds(selectedVoucherIds.filter(id => id !== v.id));
-                                  }
-                                }}
-                                className="w-5 h-5 rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
-                              />
+                              <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-emerald-600 border border-emerald-100">
+                                <Ticket size={16} />
+                              </div>
                               <div>
-                                <p className="text-sm font-bold text-neutral-900">Voucher #{v.voucherNumber}</p>
+                                <p className="text-sm font-bold text-neutral-900">Voucher #{v?.voucherNumber}</p>
                                 <p className="text-[10px] text-neutral-400 font-bold uppercase">{ride?.destination}</p>
                               </div>
                             </div>
-                            <span className="text-sm font-black text-neutral-900">R$ {ride?.netValue.toFixed(2)}</span>
-                          </label>
+                            <div className="flex items-center gap-4">
+                              <span className="text-sm font-black text-neutral-900">R$ {ride?.netValue.toFixed(2)}</span>
+                              <button 
+                                onClick={() => setSelectedVoucherIds(selectedVoucherIds.filter(id => id !== vId))}
+                                className="text-neutral-400 hover:text-red-500 transition-colors"
+                              >
+                                <XCircle size={18} />
+                              </button>
+                            </div>
+                          </div>
                         );
                       })}
                     </div>

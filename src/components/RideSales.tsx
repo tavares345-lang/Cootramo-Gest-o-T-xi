@@ -186,224 +186,230 @@ export default function RideSales() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-          {/* Section: Passenger & Value */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-1 h-4 bg-emerald-500 rounded-full" />
-              <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Informações Básicas</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Passageiro (Opcional)</label>
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
-                  <input
-                    {...register('passengerName')}
-                    className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                    placeholder="Nome do passageiro"
-                  />
+        <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="space-y-8">
+            {/* Section: Passenger & Value */}
+            <div className="bg-white p-6 rounded-3xl border border-neutral-200 shadow-sm space-y-6">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-1 h-4 bg-emerald-500 rounded-full" />
+                <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Informações da Corrida</h3>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Passageiro (Opcional)</label>
+                  <div className="relative">
+                    <User className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
+                    <input
+                      {...register('passengerName')}
+                      className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                      placeholder="Nome do passageiro"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Valor da Corrida (R$)</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 font-bold">R$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      {...register('value', { valueAsNumber: true })}
+                      className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-lg font-bold"
+                      placeholder="0,00"
+                    />
+                  </div>
+                  {errors.value && <p className="text-xs text-red-500 ml-1">{errors.value.message}</p>}
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Valor da Corrida (R$)</label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 font-bold">R$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('value', { valueAsNumber: true })}
-                    className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-lg font-bold"
-                    placeholder="0,00"
-                  />
-                </div>
-                {errors.value && <p className="text-xs text-red-500 ml-1">{errors.value.message}</p>}
-              </div>
             </div>
-          </div>
 
-          {/* Section: Route */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-1 h-4 bg-emerald-500 rounded-full" />
-              <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Trajeto</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Origem</label>
-                <div className="relative">
-                  <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
-                  <input
-                    {...register('origin')}
-                    readOnly
-                    className="w-full pl-12 pr-4 py-3 bg-neutral-100 border border-neutral-200 rounded-xl text-neutral-500 cursor-not-allowed outline-none transition-all"
-                    placeholder="Local de partida"
-                  />
-                </div>
-                {errors.origin && <p className="text-xs text-red-500 ml-1">{errors.origin.message}</p>}
+            {/* Section: Route */}
+            <div className="bg-white p-6 rounded-3xl border border-neutral-200 shadow-sm space-y-6">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-1 h-4 bg-emerald-500 rounded-full" />
+                <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Trajeto</h3>
               </div>
-
-              <div className="space-y-2 relative">
-                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Destino</label>
-                <div className="relative">
-                  <ArrowRight className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
-                  <input
-                    {...register('destination')}
-                    onFocus={() => setShowDestList(true)}
-                    autoComplete="off"
-                    className="w-full pl-12 pr-10 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                    placeholder="Local de chegada"
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => setShowDestList(!showDestList)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
-                  >
-                    <ChevronDown size={18} />
-                  </button>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Origem</label>
+                  <div className="relative">
+                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
+                    <input
+                      {...register('origin')}
+                      readOnly
+                      className="w-full pl-12 pr-4 py-3 bg-neutral-100 border border-neutral-200 rounded-xl text-neutral-500 cursor-not-allowed outline-none transition-all"
+                      placeholder="Local de partida"
+                    />
+                  </div>
                 </div>
-                {errors.destination && <p className="text-xs text-red-500 ml-1">{errors.destination.message}</p>}
-                
-                <AnimatePresence>
-                  {showDestList && filteredDestinations.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="absolute z-50 left-0 right-0 top-full mt-2 bg-white border border-neutral-200 rounded-xl shadow-xl max-h-60 overflow-y-auto"
+
+                <div className="space-y-2 relative">
+                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Destino</label>
+                  <div className="relative">
+                    <ArrowRight className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
+                    <input
+                      {...register('destination')}
+                      onFocus={() => setShowDestList(true)}
+                      autoComplete="off"
+                      className="w-full pl-12 pr-10 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                      placeholder="Local de chegada"
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setShowDestList(!showDestList)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
                     >
-                      {filteredDestinations.map(dest => (
-                        <button
-                          key={dest.id}
-                          type="button"
-                          onClick={() => selectDestination(dest)}
-                          className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-50 transition-colors border-b border-neutral-50 last:border-0 text-left"
-                        >
-                          <div className="flex flex-col">
-                            <span className="text-sm font-medium text-neutral-900">{dest.name}</span>
-                            <span className="text-[10px] text-neutral-400 uppercase font-bold tracking-wider">{dest.region}</span>
-                          </div>
-                          <span className="text-xs font-bold text-emerald-600">R$ {dest.value.toFixed(2)}</span>
-                        </button>
+                      <ChevronDown size={18} />
+                    </button>
+                  </div>
+                  {errors.destination && <p className="text-xs text-red-500 ml-1">{errors.destination.message}</p>}
+                  
+                  <AnimatePresence>
+                    {showDestList && filteredDestinations.length > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="absolute z-50 left-0 right-0 top-full mt-2 bg-white border border-neutral-200 rounded-xl shadow-xl max-h-60 overflow-y-auto"
+                      >
+                        {filteredDestinations.map(dest => (
+                          <button
+                            key={dest.id}
+                            type="button"
+                            onClick={() => selectDestination(dest)}
+                            className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-50 transition-colors border-b border-neutral-50 last:border-0 text-left"
+                          >
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-neutral-900">{dest.name}</span>
+                              <span className="text-[10px] text-neutral-400 uppercase font-bold tracking-wider">{dest.region}</span>
+                            </div>
+                            <span className="text-xs font-bold text-emerald-600">R$ {dest.value.toFixed(2)}</span>
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-8">
+            {/* Section: Assignment & Payment */}
+            <div className="bg-white p-6 rounded-3xl border border-neutral-200 shadow-sm space-y-6">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-1 h-4 bg-emerald-500 rounded-full" />
+                <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Atribuição e Pagamento</h3>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Motorista</label>
+                  <div className="relative">
+                    <Car className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
+                    <select
+                      {...register('driverId')}
+                      className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none"
+                    >
+                      <option value="">Selecione o motorista</option>
+                      {drivers.map(driver => (
+                        <option key={driver.id} value={driver.id}>U: {driver.unitNumber} - {driver.name}</option>
                       ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                    </select>
+                  </div>
+                  {errors.driverId && <p className="text-xs text-red-500 ml-1">{errors.driverId.message}</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Forma de Pagamento</label>
+                  <div className="relative">
+                    <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
+                    <select
+                      {...register('paymentMethodId')}
+                      className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none"
+                    >
+                      <option value="">Selecione o pagamento</option>
+                      {paymentMethods.map(method => (
+                        <option key={method.id} value={method.id}>{method.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {errors.paymentMethodId && <p className="text-xs text-red-500 ml-1">{errors.paymentMethodId.message}</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Setor de Venda</label>
+                  <div className="relative">
+                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
+                    <select
+                      {...register('sectorId')}
+                      className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none"
+                    >
+                      <option value="">Selecione o setor</option>
+                      {sectors.map(sector => (
+                        <option key={sector.id} value={sector.id}>{sector.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {errors.sectorId && <p className="text-xs text-red-500 ml-1">{errors.sectorId.message}</p>}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Section: Assignment & Payment */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-1 h-4 bg-emerald-500 rounded-full" />
-              <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Atribuição e Pagamento</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Summary */}
+            <div className="p-8 bg-neutral-900 rounded-3xl space-y-4 shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full -mr-16 -mt-16 blur-3xl" />
+              <div className="flex justify-between text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                <span>Detalhamento de Valores</span>
+                <span className="text-emerald-500">Cálculo Automático</span>
+              </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Motorista</label>
-                <div className="relative">
-                  <Car className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
-                  <select
-                    {...register('driverId')}
-                    className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none"
-                  >
-                    <option value="">Selecione o motorista</option>
-                    {drivers.map(driver => (
-                      <option key={driver.id} value={driver.id}>U: {driver.unitNumber} - {driver.name}</option>
-                    ))}
-                  </select>
+                <div className="flex justify-between text-sm text-neutral-300">
+                  <span>Valor Bruto</span>
+                  <span>R$ {rideValue.toFixed(2)}</span>
                 </div>
-                {errors.driverId && <p className="text-xs text-red-500 ml-1">{errors.driverId.message}</p>}
+                {calculateFees().feeAmount > 0 && (
+                  <div className="flex justify-between text-sm text-neutral-400">
+                    <span>Taxa de Cartão ({paymentMethods.find(m => m.id === selectedPaymentMethodId)?.feePercentage}%)</span>
+                    <span className="text-red-400">- R$ {calculateFees().feeAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                {calculateFees().fixedFee > 0 && (
+                  <div className="flex justify-between text-sm text-neutral-400">
+                    <span>Taxa Administrativa</span>
+                    <span className="text-red-400">- R$ {calculateFees().fixedFee.toFixed(2)}</span>
+                  </div>
+                )}
               </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Forma de Pagamento</label>
-                <div className="relative">
-                  <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
-                  <select
-                    {...register('paymentMethodId')}
-                    className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none"
-                  >
-                    <option value="">Selecione o pagamento</option>
-                    {paymentMethods.map(method => (
-                      <option key={method.id} value={method.id}>{method.name}</option>
-                    ))}
-                  </select>
+              <div className="pt-4 border-t border-white/10 flex justify-between items-center">
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Líquido Motorista</span>
+                  <span className="text-2xl font-black text-emerald-400">R$ {calculateFees().netValue.toFixed(2)}</span>
                 </div>
-                {errors.paymentMethodId && <p className="text-xs text-red-500 ml-1">{errors.paymentMethodId.message}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Setor de Venda</label>
-                <div className="relative">
-                  <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
-                  <select
-                    {...register('sectorId')}
-                    className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none"
-                  >
-                    <option value="">Selecione o setor</option>
-                    {sectors.map(sector => (
-                      <option key={sector.id} value={sector.id}>{sector.name}</option>
-                    ))}
-                  </select>
+                <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center">
+                  <DollarSign size={24} />
                 </div>
-                {errors.sectorId && <p className="text-xs text-red-500 ml-1">{errors.sectorId.message}</p>}
               </div>
             </div>
-          </div>
 
-          {/* Summary */}
-          <div className="p-8 bg-neutral-900 rounded-3xl space-y-4 shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full -mr-16 -mt-16 blur-3xl" />
-            <div className="flex justify-between text-xs font-bold text-neutral-400 uppercase tracking-widest">
-              <span>Detalhamento de Valores</span>
-              <span className="text-emerald-500">Cálculo Automático</span>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-neutral-300">
-                <span>Valor Bruto</span>
-                <span>R$ {rideValue.toFixed(2)}</span>
-              </div>
-              {calculateFees().feeAmount > 0 && (
-                <div className="flex justify-between text-sm text-neutral-400">
-                  <span>Taxa de Cartão ({paymentMethods.find(m => m.id === selectedPaymentMethodId)?.feePercentage}%)</span>
-                  <span className="text-red-400">- R$ {calculateFees().feeAmount.toFixed(2)}</span>
-                </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {loading ? (
+                <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Ticket size={20} />
+                  Gerar Voucher e Finalizar
+                </>
               )}
-              {calculateFees().fixedFee > 0 && (
-                <div className="flex justify-between text-sm text-neutral-400">
-                  <span>Taxa Administrativa</span>
-                  <span className="text-red-400">- R$ {calculateFees().fixedFee.toFixed(2)}</span>
-                </div>
-              )}
-            </div>
-            <div className="pt-4 border-t border-white/10 flex justify-between items-center">
-              <div className="flex flex-col">
-                <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Líquido Motorista</span>
-                <span className="text-2xl font-black text-emerald-400">R$ {calculateFees().netValue.toFixed(2)}</span>
-              </div>
-              <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center">
-                <DollarSign size={24} />
-              </div>
-            </div>
+            </button>
           </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {loading ? (
-              <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <>
-                <Ticket size={20} />
-                Gerar Voucher e Finalizar
-              </>
-            )}
-          </button>
         </form>
       </div>
 
@@ -554,17 +560,14 @@ export default function RideSales() {
               </div>
             </motion.div>
           ) : (
-            <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100 relative overflow-hidden">
-              <div className="relative z-10">
-                <div className="flex items-center gap-2 text-emerald-600 mb-2">
-                  <AlertCircle size={18} />
-                  <h3 className="text-sm font-bold uppercase tracking-wider">Dica de Balcão</h3>
-                </div>
-                <p className="text-emerald-800 text-xs leading-relaxed font-medium">
+            <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex items-start gap-3">
+              <AlertCircle size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 mb-1">Dica de Balcão</h3>
+                <p className="text-emerald-800 text-[10px] leading-relaxed font-medium">
                   Sempre verifique a unidade do motorista para garantir o repasse correto ao permissionário.
                 </p>
               </div>
-              <Car size={60} className="absolute -right-4 -bottom-4 text-emerald-200/50 rotate-12" />
             </div>
           )}
         </AnimatePresence>

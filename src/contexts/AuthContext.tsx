@@ -64,7 +64,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               name: user.displayName || 'Usuário',
               email: user.email || '',
               role: user.email === 'tavares345@gmail.com' ? 'ADMINISTRADOR' : 'VENDEDOR',
+              sectorId: sessionStorage.getItem('pendingSectorId') || undefined
             };
+            if (sessionStorage.getItem('pendingSectorId')) {
+              sessionStorage.removeItem('pendingSectorId');
+            }
             await setDoc(docRef, newProfile);
             // onSnapshot will trigger again after setDoc
           }

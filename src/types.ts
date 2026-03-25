@@ -3,6 +3,7 @@ export type UserRole = 'ADMINISTRADOR' | 'GERENTE' | 'VENDEDOR';
 export interface UserProfile {
   uid: string;
   name: string;
+  username?: string;
   email: string;
   role: UserRole;
   sectorId?: string;
@@ -11,6 +12,7 @@ export interface UserProfile {
 export interface Employee {
   id: string;
   name: string;
+  username?: string;
   email?: string;
   password?: string;
   role: UserRole;

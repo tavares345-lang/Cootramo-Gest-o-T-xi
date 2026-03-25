@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc, writeBatch } from 'firebase/firestore';
+import { initializeApp, deleteApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { db } from '../firebase';
 import { Driver, Employee, Sector, PaymentMethod, Destination } from '../types';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
@@ -100,7 +103,58 @@ export default function Registrations() {
     }
 
     try {
-      if (editingItem) {
+      if (activeTab === 'employees' && !editingItem && data.name && data.password) {
+        if ((data.password as string).length < 6) {
+          alert('A senha deve ter pelo menos 6 caracteres.');
+          return;
+        }
+
+        // Create Auth user using secondary app to avoid logging out current admin
+        // We use a dummy email domain internally to support simple name-based login
+        // We normalize the name to create a valid internal email
+        const username = (data.name as string)
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]/g, ".")
+          .replace(/\.+/g, ".")
+          .replace(/^\.|\.$/g, "");
+        const internalEmail = `${username}@taxi.app`;
+        
+        console.log('Registering employee:', { username, internalEmail });
+        
+        // Use a unique name for the secondary app to avoid conflicts
+        const appName = `Secondary-${Date.now()}`;
+        const secondaryApp = initializeApp(firebaseConfig, appName);
+        try {
+          const secondaryAuth = getAuth(secondaryApp);
+          const userCredential = await createUserWithEmailAndPassword(secondaryAuth, internalEmail, data.password as string);
+          const newUser = userCredential.user;
+          
+          // Create user profile in 'users' collection
+          await setDoc(doc(db, 'users', newUser.uid), {
+            uid: newUser.uid,
+            name: data.name,
+            username: username,
+            email: internalEmail,
+            role: data.role,
+            active: true
+          });
+          
+          // Remove password from data before saving to Firestore
+          const { password, ...employeeData } = data;
+          
+          // Add to 'employees' collection
+          await addDoc(collection(db, 'employees'), {
+            ...employeeData,
+            username: username,
+            uid: newUser.uid,
+            active: true
+          });
+        } finally {
+          await deleteApp(secondaryApp);
+        }
+      } else if (editingItem) {
         const docRef = doc(db, activeTab, editingItem.id);
         await updateDoc(docRef, data);
       } else {
@@ -108,7 +162,15 @@ export default function Registrations() {
       }
       setIsModalOpen(false);
       setEditingItem(null);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Save error:', error);
+      if (error.code === 'auth/email-already-in-use') {
+        alert('Este nome de usuário já está em uso. Tente adicionar um sobrenome ou número.');
+      } else if (error.code === 'auth/weak-password') {
+        alert('A senha é muito fraca. Use pelo menos 6 caracteres.');
+      } else {
+        alert('Erro ao salvar: ' + (error.message || 'Ocorreu um erro inesperado.'));
+      }
       handleFirestoreError(error, editingItem ? OperationType.UPDATE : OperationType.CREATE, `${activeTab}/${editingItem?.id || ''}`);
     }
   };
@@ -432,7 +494,7 @@ export default function Registrations() {
                       </div>
                       <div className="flex flex-col">
                         <span className="font-bold text-neutral-900">{item.name}</span>
-                        {item.email && <span className="text-[10px] text-neutral-400">{item.email}</span>}
+                        {item.username && <span className="text-[10px] text-neutral-400">@{item.username}</span>}
                       </div>
                     </div>
                   </td>
@@ -517,15 +579,9 @@ export default function Registrations() {
                 {activeTab === 'employees' && (
                   <>
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Email (Opcional)</label>
-                      <input name="email" type="email" defaultValue={editingItem?.email} className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
+                      <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Senha {editingItem ? '(Deixe em branco para não alterar)' : 'Inicial'}</label>
+                      <input name="password" type="password" required={!editingItem} className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
                     </div>
-                    {!editingItem && (
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Senha Inicial</label>
-                        <input name="password" type="password" className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-                      </div>
-                    )}
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Cargo</label>
                       <select name="role" defaultValue={editingItem?.role || 'VENDEDOR'} required className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 appearance-none">

@@ -46,18 +46,21 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') == 'ADMINISTRADOR' || 
-         (request.auth.token.email == "tavares345@gmail.com" && request.auth.token.email_verified == true));
+        ((request.auth.token.email == "tavares345@gmail.com" && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') == 'ADMINISTRADOR'));
     }
     
     function isManager() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') == 'GERENTE' || isAdmin());
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') == 'GERENTE') || isAdmin());
     }
     
     function isSeller() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') == 'VENDEDOR' || isManager());
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') == 'VENDEDOR') || isManager());
     }
 
     function hasOnlyAllowedFields(fields) {
@@ -87,7 +90,7 @@ service cloud.firestore {
              data.paymentMethodId is string &&
              data.sellerId is string &&
              data.sectorId is string &&
-             data.driverId is string &&
+             (!('driverId' in data) || data.driverId is string) &&
              data.status in ['pending', 'paid', 'cancelled'] &&
              data.createdAt is timestamp &&
              (!('passengerName' in data) || (data.passengerName is string && data.passengerName.size() < 100)) &&
@@ -101,8 +104,13 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isManager();
-      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
-      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                      ((isOwner(userId) && (request.resource.data.role == 'VENDEDOR' || request.auth.token.email == 'tavares345@gmail.com')) || 
+                       isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                      ((isOwner(userId) && (request.resource.data.role == resource.data.role || request.auth.token.email == 'tavares345@gmail.com')) || 
+                       isAdmin());
+      allow delete: if isAdmin();
     }
 
     match /employees/{employeeId} {

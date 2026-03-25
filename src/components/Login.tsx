@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc, addDoc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, addDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { Car, Mail, Lock, LogIn, MapPin } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Sector } from '../types';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [selectedSectorId, setSelectedSectorId] = useState('');
@@ -64,7 +64,18 @@ export default function Login() {
     setLoading(true);
     setError('');
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // Store sector in session for AuthContext to pick up if it's a new user
+      sessionStorage.setItem('pendingSectorId', selectedSectorId);
+
+      // Support simple name-based login by normalizing the input name
+      // If it's already an email (like the admin email), use it as is
+      const normalizedUsername = username.includes('@') 
+        ? username 
+        : username.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '.');
+      
+      const loginIdentifier = username.includes('@') ? username : `${normalizedUsername}@taxi.app`;
+
+      const userCredential = await signInWithEmailAndPassword(auth, loginIdentifier, password);
       const user = userCredential.user;
       
       // Check if selected sector is "Administração" and if user is admin
@@ -74,16 +85,21 @@ export default function Login() {
         const userData = userDoc.data();
         if (userData?.role !== 'ADMINISTRADOR' && user.email !== 'tavares345@gmail.com') {
           await auth.signOut();
+          sessionStorage.removeItem('pendingSectorId');
           setError('Acesso ao setor Administração restrito a administradores.');
           setLoading(false);
           return;
         }
       }
 
-      // Update sector in user profile (merge: true handles new users)
-      await setDoc(doc(db, 'users', user.uid), {
-        sectorId: selectedSectorId
-      }, { merge: true });
+      // Update sector in user profile if it exists
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        await updateDoc(doc(db, 'users', user.uid), {
+          sectorId: selectedSectorId
+        });
+        sessionStorage.removeItem('pendingSectorId');
+      }
     } catch (err: any) {
       setError('Falha no login. Verifique suas credenciais.');
       console.error(err);
@@ -101,11 +117,20 @@ export default function Login() {
     setError('');
     try {
       const provider = new GoogleAuthProvider();
+      // Store sector in session for AuthContext to pick up if it's a new user
+      sessionStorage.setItem('pendingSectorId', selectedSectorId);
+      
       const userCredential = await signInWithPopup(auth, provider);
-      // Update sector in user profile (merge: true handles new users)
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        sectorId: selectedSectorId
-      }, { merge: true });
+      const user = userCredential.user;
+
+      // Update sector in user profile if it exists
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        await updateDoc(doc(db, 'users', user.uid), {
+          sectorId: selectedSectorId
+        });
+        sessionStorage.removeItem('pendingSectorId');
+      }
     } catch (err: any) {
       setError('Falha no login com Google.');
       console.error(err);
@@ -158,16 +183,16 @@ export default function Login() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5 ml-1">Login</label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1.5 ml-1">Usuário</label>
             <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
+              <LogIn className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" size={18} />
               <input
-                type="email"
+                type="text"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none"
-                placeholder="Seu login (email)"
+                placeholder="Seu usuário"
               />
             </div>
           </div>
