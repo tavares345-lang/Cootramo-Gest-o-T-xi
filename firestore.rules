@@ -1,0 +1,156 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Fields: uid (string), name (string), email (string), role (string), sectorId (string)
+//
+// Collection: employees
+// Fields: name (string), role (string), currentSectorId (string), active (bool)
+//
+// Collection: drivers
+// Fields: name (string), licensePlate (string), phone (string), active (bool)
+//
+// Collection: sectors
+// Fields: name (string)
+//
+// Collection: paymentMethods
+// Fields: name (string), feePercentage (number)
+//
+// Collection: rides
+// Fields: passengerName (string), origin (string), destination (string), value (number), paymentMethodId (string), feeAmount (number), netValue (number), sellerId (string), sectorId (string), driverId (string), status (string), createdAt (timestamp)
+//
+// Collection: vouchers
+// Fields: rideId (string), voucherNumber (string), status (string), createdAt (timestamp)
+//
+// Collection: payments
+// Fields: driverId (string), amount (number), status (string), periodStart (timestamp), periodEnd (timestamp), createdAt (timestamp)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') == 'ADMINISTRADOR' || 
+         (request.auth.token.email == "tavares345@gmail.com" && request.auth.token.email_verified == true));
+    }
+    
+    function isManager() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') == 'GERENTE' || isAdmin());
+    }
+    
+    function isSeller() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') == 'VENDEDOR' || isManager());
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && data.email.size() > 0 && data.email.size() < 100 &&
+             data.role in ['ADMINISTRADOR', 'GERENTE', 'VENDEDOR'] &&
+             (!('sectorId' in data) || data.sectorId is string);
+    }
+
+    function isValidRide(data) {
+      return data.origin is string && data.origin.size() > 0 && data.origin.size() < 200 &&
+             data.destination is string && data.destination.size() > 0 && data.destination.size() < 200 &&
+             data.value is number && data.value >= 0 &&
+             data.paymentMethodId is string &&
+             data.sellerId is string &&
+             data.sectorId is string &&
+             data.driverId is string &&
+             data.status in ['pending', 'paid', 'cancelled'] &&
+             data.createdAt is timestamp &&
+             (!('passengerName' in data) || (data.passengerName is string && data.passengerName.size() < 100)) &&
+             (!('feeAmount' in data) || data.feeAmount is number) &&
+             (!('netValue' in data) || data.netValue is number);
+    }
+
+    // ===============================================================
+    // Match Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isManager();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+    }
+
+    match /employees/{employeeId} {
+      allow read: if isSeller();
+      allow write: if isManager();
+    }
+
+    match /drivers/{driverId} {
+      allow read: if isSeller();
+      allow write: if isManager();
+    }
+
+    match /sectors/{sectorId} {
+      allow read: if true; // Allow unauthenticated read for login screen
+      allow write: if request.resource.data.name in ['Administração', 'Balcão terminal 1', 'Balcão terminal 2', 'Balcão externo'] || isManager();
+    }
+
+    match /paymentMethods/{methodId} {
+      allow read: if isSeller();
+      allow write: if isManager();
+    }
+
+    match /rides/{rideId} {
+      allow read: if isSeller();
+      allow create: if isSeller() && isValidRide(request.resource.data);
+      allow update: if isManager() || (isSeller() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status == 'cancelled');
+    }
+
+    match /vouchers/{voucherId} {
+      allow read: if isSeller();
+      allow create: if isSeller();
+      allow update: if isManager() || (isSeller() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status == 'cancelled');
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isManager();
+      allow write: if isManager();
+    }
+
+    match /destinations/{destinationId} {
+      allow read: if isSeller();
+      allow write: if isManager();
+    }
+
+    match /settlements/{settlementId} {
+      allow read: if isManager();
+      allow create: if isManager();
+      allow update: if isManager();
+    }
+  }
+}

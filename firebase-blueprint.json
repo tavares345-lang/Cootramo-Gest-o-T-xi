@@ -1,0 +1,147 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user with role-based access",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMINISTRADOR", "GERENTE", "VENDEDOR"] },
+        "sectorId": { "type": "string", "description": "Current sector assigned to the user" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Employee of the cooperative",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMINISTRADOR", "GERENTE", "VENDEDOR"] },
+        "currentSectorId": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["name", "role"]
+    },
+    "Driver": {
+      "title": "Driver",
+      "description": "Taxi driver (permissionário)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "licensePlate": { "type": "string" },
+        "unitNumber": { "type": "string" },
+        "phone": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["name", "licensePlate", "unitNumber"]
+    },
+    "Sector": {
+      "title": "Sector",
+      "description": "Sales sector (balcão)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "PaymentMethod": {
+      "title": "Payment Method",
+      "description": "Available payment methods",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "feePercentage": { "type": "number" }
+      },
+      "required": ["name", "feePercentage"]
+    },
+    "Ride": {
+      "title": "Ride",
+      "description": "Ride sale record",
+      "type": "object",
+      "properties": {
+        "passengerName": { "type": "string" },
+        "origin": { "type": "string" },
+        "destination": { "type": "string" },
+        "value": { "type": "number" },
+        "paymentMethodId": { "type": "string" },
+        "feeAmount": { "type": "number" },
+        "netValue": { "type": "number" },
+        "sellerId": { "type": "string" },
+        "sectorId": { "type": "string" },
+        "driverId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "paid"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["origin", "destination", "value", "paymentMethodId", "sellerId", "sectorId", "driverId", "status", "createdAt"]
+    },
+    "Voucher": {
+      "title": "Voucher",
+      "description": "Ride voucher (recibo)",
+      "type": "object",
+      "properties": {
+        "rideId": { "type": "string" },
+        "voucherNumber": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "cancelled", "redeemed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["rideId", "voucherNumber", "status", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment record for drivers",
+      "type": "object",
+      "properties": {
+        "driverId": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "paid"] },
+        "periodStart": { "type": "string", "format": "date-time" },
+        "periodEnd": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["driverId", "amount", "status", "createdAt"]
+    },
+    "Destination": {
+      "title": "Destination",
+      "description": "Pre-defined destination with fixed value",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "region": { "type": "string" },
+        "value": { "type": "number" }
+      },
+      "required": ["name", "region", "value"]
+    },
+    "Settlement": {
+      "title": "Settlement",
+      "description": "Batch of vouchers for driver payment",
+      "type": "object",
+      "properties": {
+        "settlementNumber": { "type": "string" },
+        "driverId": { "type": "string" },
+        "voucherIds": { "type": "array", "items": { "type": "string" } },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "paid"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "paidAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["settlementNumber", "driverId", "voucherIds", "totalAmount", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users": { "schema": "User", "description": "System users" },
+    "/employees": { "schema": "Employee", "description": "Cooperative employees" },
+    "/drivers": { "schema": "Driver", "description": "Cooperative drivers" },
+    "/sectors": { "schema": "Sector", "description": "Sales sectors" },
+    "/paymentMethods": { "schema": "PaymentMethod", "description": "Payment methods" },
+    "/rides": { "schema": "Ride", "description": "Ride sales" },
+    "/vouchers": { "schema": "Voucher", "description": "Ride vouchers" },
+    "/payments": { "schema": "Payment", "description": "Driver payments" },
+    "/destinations": { "schema": "Destination", "description": "Pre-defined destinations" },
+    "/settlements": { "schema": "Settlement", "description": "Driver voucher settlements" }
+  }
+}
