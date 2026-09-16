@@ -19,6 +19,7 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { Sector } from './types';
 import { useAuth } from './contexts/AuthContext';
+import { setOrUpdateUserPassword, FIREBASE_CONSOLE_AUTH_URL } from './lib/auth-helpers';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -74,20 +75,23 @@ export default function App() {
     setPasswordLoading(true);
     setPasswordError('');
     try {
-      const { updatePassword } = await import('firebase/auth');
       if (user) {
-        await updatePassword(user, newPassword);
+        const result = await setOrUpdateUserPassword(user, newPassword);
         setIsChangePasswordOpen(false);
         setNewPassword('');
         setConfirmPassword('');
-        alert('Senha alterada com sucesso!');
+        alert(result.message);
       }
     } catch (error: any) {
       console.error('Error updating password:', error);
-      if (error.code === 'auth/requires-recent-login') {
-        setPasswordError('Esta operação requer um login recente. Por favor, saia e entre novamente.');
+      if (error.code === 'auth/credential-already-in-use' || error.code === 'auth/email-already-in-use') {
+        setPasswordError('Conflito de autenticação: Já existe outra conta ativa com este e-mail associada a uma senha.');
+      } else if (error.code === 'auth/requires-recent-login') {
+        setPasswordError('Esta operação requer um login recente. Por favor, saia do sistema e entre novamente pelo Google antes de definir a senha.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setPasswordError('A autenticação por senha está desativada no Firebase Console. Ative o provedor "E-mail/senha" para permitir login com senha.');
       } else {
-        setPasswordError('Erro ao alterar senha. Tente novamente.');
+        setPasswordError('Erro ao definir senha: ' + (error.message || 'Tente novamente.'));
       }
     } finally {
       setPasswordLoading(false);

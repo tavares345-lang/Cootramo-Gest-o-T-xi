@@ -15,16 +15,26 @@ import {
   Trash2, 
   Edit2, 
   CheckCircle2, 
-  XCircle,
-  Search,
-  MoreVertical,
-  Navigation,
-  Upload,
-  DollarSign
+  XCircle, 
+  Search, 
+  MoreVertical, 
+  Navigation, 
+  Upload, 
+  DollarSign,
+  AlertTriangle,
+  ExternalLink,
+  ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { 
+  normalizeUsername, 
+  getInternalEmail, 
+  getAuthErrorMessage, 
+  generateUniqueUsername,
+  FIREBASE_CONSOLE_AUTH_URL 
+} from '../lib/auth-helpers';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -44,6 +54,17 @@ export default function Registrations() {
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [showAuthNotAllowedModal, setShowAuthNotAllowedModal] = useState(false);
+  const [pendingEmployee, setPendingEmployee] = useState<{ data: any; username: string } | null>(null);
+  const [savingWithoutAuth, setSavingWithoutAuth] = useState(false);
+  const [authConflictEmployee, setAuthConflictEmployee] = useState<{
+    data: any;
+    username: string;
+    suggestedUsername: string;
+  } | null>(null);
+  const [resolvingConflict, setResolvingConflict] = useState(false);
+  const [formName, setFormName] = useState('');
+  const [customUsername, setCustomUsername] = useState('');
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -109,17 +130,10 @@ export default function Registrations() {
           return;
         }
 
-        // Create Auth user using secondary app to avoid logging out current admin
-        // We use a dummy email domain internally to support simple name-based login
-        // We normalize the name to create a valid internal email
-        const username = (data.name as string)
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-z0-9]/g, ".")
-          .replace(/\.+/g, ".")
-          .replace(/^\.|\.$/g, "");
-        const internalEmail = `${username}@taxi.app`;
+        // Determine username (either custom or normalized from name)
+        const customField = (data.customUsername as string)?.trim();
+        const username = customField ? normalizeUsername(customField) : normalizeUsername(data.name as string);
+        const internalEmail = getInternalEmail(username);
         
         console.log('Registering employee:', { username, internalEmail });
         
@@ -141,8 +155,8 @@ export default function Registrations() {
             active: true
           });
           
-          // Remove password from data before saving to Firestore
-          const { password, ...employeeData } = data;
+          // Remove password and customUsername from data before saving to Firestore
+          const { password, customUsername, ...employeeData } = data;
           
           // Add to 'employees' collection
           await addDoc(collection(db, 'employees'), {
@@ -151,27 +165,206 @@ export default function Registrations() {
             uid: newUser.uid,
             active: true
           });
+        } catch (authError: any) {
+          console.error('Auth creation error:', authError);
+          if (authError.code === 'auth/operation-not-allowed') {
+            setPendingEmployee({ data, username });
+            setShowAuthNotAllowedModal(true);
+            return;
+          }
+          if (authError.code === 'auth/email-already-in-use') {
+            // Authentication conflict: username/email is already registered
+            const suggested = generateUniqueUsername(username, employees.map(e => e.username || ''));
+            setAuthConflictEmployee({
+              data,
+              username,
+              suggestedUsername: suggested
+            });
+            return;
+          }
+          alert(getAuthErrorMessage(authError.code));
+          return;
         } finally {
           await deleteApp(secondaryApp);
         }
       } else if (editingItem) {
+        const { password, customUsername: custUser, ...updateData } = data;
         const docRef = doc(db, activeTab, editingItem.id);
-        await updateDoc(docRef, data);
+
+        // If it's an employee and a password was given, but employee has no Auth UID yet
+        if (activeTab === 'employees' && !editingItem.uid && password) {
+          if ((password as string).length < 6) {
+            alert('A senha deve ter pelo menos 6 caracteres.');
+            return;
+          }
+          const empUsername = custUser ? normalizeUsername(custUser as string) : (editingItem.username || normalizeUsername(data.name as string));
+          const internalEmail = getInternalEmail(empUsername);
+          const appName = `Secondary-${Date.now()}`;
+          const secondaryApp = initializeApp(firebaseConfig, appName);
+          try {
+            const secondaryAuth = getAuth(secondaryApp);
+            const userCredential = await createUserWithEmailAndPassword(secondaryAuth, internalEmail, password as string);
+            const newUser = userCredential.user;
+
+            await setDoc(doc(db, 'users', newUser.uid), {
+              uid: newUser.uid,
+              name: data.name,
+              username: empUsername,
+              email: internalEmail,
+              role: data.role,
+              active: true
+            });
+
+            updateData.uid = newUser.uid;
+            updateData.username = empUsername;
+          } catch (authErr: any) {
+            if (authErr.code === 'auth/operation-not-allowed') {
+              setPendingEmployee({ data: { ...data, password }, username: empUsername });
+              setShowAuthNotAllowedModal(true);
+              return;
+            }
+            if (authErr.code === 'auth/email-already-in-use') {
+              const suggested = generateUniqueUsername(empUsername, employees.map(e => e.username || ''));
+              setAuthConflictEmployee({
+                data: { ...data, password },
+                username: empUsername,
+                suggestedUsername: suggested
+              });
+              return;
+            }
+            alert(getAuthErrorMessage(authErr.code));
+            return;
+          } finally {
+            await deleteApp(secondaryApp);
+          }
+        }
+
+        // Keep users collection profile in sync if role or name changed
+        if (activeTab === 'employees' && editingItem.uid) {
+          try {
+            await updateDoc(doc(db, 'users', editingItem.uid), {
+              name: data.name,
+              role: data.role
+            });
+          } catch (e) {
+            console.warn('Could not update user document:', e);
+          }
+        }
+
+        await updateDoc(docRef, updateData);
       } else {
-        await addDoc(collection(db, activeTab), { ...data, active: true });
+        const { password, customUsername, ...createData } = data;
+        await addDoc(collection(db, activeTab), { ...createData, active: true });
       }
       setIsModalOpen(false);
       setEditingItem(null);
     } catch (error: any) {
       console.error('Save error:', error);
-      if (error.code === 'auth/email-already-in-use') {
-        alert('Este nome de usuário já está em uso. Tente adicionar um sobrenome ou número.');
-      } else if (error.code === 'auth/weak-password') {
-        alert('A senha é muito fraca. Use pelo menos 6 caracteres.');
-      } else {
-        alert('Erro ao salvar: ' + (error.message || 'Ocorreu um erro inesperado.'));
+      if (error?.code === 'auth/operation-not-allowed') {
+        const username = normalizeUsername(data?.name as string || '');
+        setPendingEmployee({ data, username });
+        setShowAuthNotAllowedModal(true);
+        return;
       }
+      if (error?.code?.startsWith('auth/')) {
+        alert(getAuthErrorMessage(error.code));
+        return;
+      }
+      alert('Erro ao salvar no banco de dados: ' + (error.message || 'Ocorreu um erro inesperado.'));
       handleFirestoreError(error, editingItem ? OperationType.UPDATE : OperationType.CREATE, `${activeTab}/${editingItem?.id || ''}`);
+    }
+  };
+
+  const handleResolveConflictWithSuggested = async () => {
+    if (!authConflictEmployee) return;
+    setResolvingConflict(true);
+    try {
+      const suggestedUsername = authConflictEmployee.suggestedUsername;
+      const suggestedEmail = getInternalEmail(suggestedUsername);
+      const appName = `Secondary-${Date.now()}`;
+      const secondaryApp = initializeApp(firebaseConfig, appName);
+      try {
+        const secondaryAuth = getAuth(secondaryApp);
+        const userCredential = await createUserWithEmailAndPassword(
+          secondaryAuth, 
+          suggestedEmail, 
+          authConflictEmployee.data.password as string
+        );
+        const newUser = userCredential.user;
+
+        await setDoc(doc(db, 'users', newUser.uid), {
+          uid: newUser.uid,
+          name: authConflictEmployee.data.name,
+          username: suggestedUsername,
+          email: suggestedEmail,
+          role: authConflictEmployee.data.role,
+          active: true
+        });
+
+        const { password, customUsername, ...employeeData } = authConflictEmployee.data;
+        await addDoc(collection(db, 'employees'), {
+          ...employeeData,
+          username: suggestedUsername,
+          uid: newUser.uid,
+          active: true
+        });
+
+        setAuthConflictEmployee(null);
+        setIsModalOpen(false);
+        setEditingItem(null);
+        alert(`Conflito resolvido! Funcionário cadastrado com o usuário @${suggestedUsername}.`);
+      } finally {
+        await deleteApp(secondaryApp);
+      }
+    } catch (err: any) {
+      alert(getAuthErrorMessage(err.code));
+    } finally {
+      setResolvingConflict(false);
+    }
+  };
+
+  const handleSaveConflictWithoutAuth = async () => {
+    if (!authConflictEmployee) return;
+    setSavingWithoutAuth(true);
+    try {
+      const { password, customUsername, ...employeeData } = authConflictEmployee.data;
+      await addDoc(collection(db, 'employees'), {
+        ...employeeData,
+        username: authConflictEmployee.username,
+        active: true
+      });
+      setAuthConflictEmployee(null);
+      setIsModalOpen(false);
+      setEditingItem(null);
+      alert('Funcionário salvo na lista com sucesso.');
+    } catch (err: any) {
+      console.error('Error saving employee without auth:', err);
+      handleFirestoreError(err, OperationType.CREATE, 'employees');
+    } finally {
+      setSavingWithoutAuth(false);
+    }
+  };
+
+  const handleSaveEmployeeWithoutAuth = async () => {
+    if (!pendingEmployee) return;
+    setSavingWithoutAuth(true);
+    try {
+      const { password, ...employeeData } = pendingEmployee.data;
+      await addDoc(collection(db, 'employees'), {
+        ...employeeData,
+        username: pendingEmployee.username,
+        active: true
+      });
+      setShowAuthNotAllowedModal(false);
+      setPendingEmployee(null);
+      setIsModalOpen(false);
+      setEditingItem(null);
+      alert('Funcionário salvo na lista com sucesso! Assim que você ativar o provedor "E-mail/senha" no Firebase Console, o acesso com senha poderá ser liberado.');
+    } catch (err: any) {
+      console.error('Error saving employee without auth:', err);
+      handleFirestoreError(err, OperationType.CREATE, 'employees');
+    } finally {
+      setSavingWithoutAuth(false);
     }
   };
 
@@ -300,6 +493,16 @@ export default function Registrations() {
   const handleDelete = async () => {
     if (itemToDelete) {
       try {
+        if (activeTab === 'employees') {
+          const emp = employees.find(e => e.id === itemToDelete);
+          if (emp?.uid) {
+            try {
+              await updateDoc(doc(db, 'users', emp.uid), { active: false });
+            } catch (e) {
+              console.warn('Could not deactivate user profile:', e);
+            }
+          }
+        }
         await deleteDoc(doc(db, activeTab, itemToDelete));
         setIsDeleteModalOpen(false);
         setItemToDelete(null);
@@ -312,6 +515,20 @@ export default function Registrations() {
   const confirmDelete = (id: string) => {
     setItemToDelete(id);
     setIsDeleteModalOpen(true);
+  };
+
+  const openCreateModal = () => {
+    setEditingItem(null);
+    setFormName('');
+    setCustomUsername('');
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (item: any) => {
+    setEditingItem(item);
+    setFormName(item.name || '');
+    setCustomUsername(item.username || '');
+    setIsModalOpen(true);
   };
 
   const tabs = [
@@ -367,7 +584,7 @@ export default function Registrations() {
             </label>
           )}
           <button
-            onClick={() => { setEditingItem(null); setIsModalOpen(true); }}
+            onClick={openCreateModal}
             className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
           >
             <Plus size={18} />
@@ -430,7 +647,7 @@ export default function Registrations() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => { setEditingItem(item); setIsModalOpen(true); }} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
+                      <button onClick={() => openEditModal(item)} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
                       <button onClick={() => confirmDelete(item.id)} className="p-2 hover:bg-red-50 rounded-lg text-neutral-400 hover:text-red-600"><Trash2 size={16} /></button>
                     </div>
                   </td>
@@ -450,7 +667,7 @@ export default function Registrations() {
                   <td className="px-6 py-4">-</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => { setEditingItem(item); setIsModalOpen(true); }} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
+                      <button onClick={() => openEditModal(item)} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
                       <button onClick={() => confirmDelete(item.id)} className="p-2 hover:bg-red-50 rounded-lg text-neutral-400 hover:text-red-600"><Trash2 size={16} /></button>
                     </div>
                   </td>
@@ -479,7 +696,7 @@ export default function Registrations() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => { setEditingItem(item); setIsModalOpen(true); }} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
+                      <button onClick={() => openEditModal(item)} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
                       <button onClick={() => confirmDelete(item.id)} className="p-2 hover:bg-red-50 rounded-lg text-neutral-400 hover:text-red-600"><Trash2 size={16} /></button>
                     </div>
                   </td>
@@ -510,7 +727,7 @@ export default function Registrations() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => { setEditingItem(item); setIsModalOpen(true); }} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
+                      <button onClick={() => openEditModal(item)} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
                       <button onClick={() => confirmDelete(item.id)} className="p-2 hover:bg-red-50 rounded-lg text-neutral-400 hover:text-red-600"><Trash2 size={16} /></button>
                     </div>
                   </td>
@@ -539,7 +756,7 @@ export default function Registrations() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => { setEditingItem(item); setIsModalOpen(true); }} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
+                      <button onClick={() => openEditModal(item)} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
                       <button onClick={() => confirmDelete(item.id)} className="p-2 hover:bg-red-50 rounded-lg text-neutral-400 hover:text-red-600"><Trash2 size={16} /></button>
                     </div>
                   </td>
@@ -562,7 +779,13 @@ export default function Registrations() {
               <form onSubmit={handleSave} className="space-y-4">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Nome</label>
-                  <input name="name" defaultValue={editingItem?.name} required className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
+                  <input 
+                    name="name" 
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    required 
+                    className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" 
+                  />
                 </div>
                 {activeTab === 'drivers' && (
                   <>
@@ -579,8 +802,35 @@ export default function Registrations() {
                 {activeTab === 'employees' && (
                   <>
                     <div className="space-y-1">
+                      <div className="flex justify-between items-center ml-1">
+                        <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Usuário de Acesso (Login)</label>
+                        <span className="text-[11px] text-emerald-600 font-medium">
+                          Padrão: @{normalizeUsername(formName) || 'usuario'}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 font-mono text-sm">@</span>
+                        <input 
+                          name="customUsername" 
+                          value={customUsername}
+                          onChange={(e) => setCustomUsername(e.target.value)}
+                          placeholder={normalizeUsername(formName) || 'usuario'} 
+                          className="w-full pl-9 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-sm" 
+                        />
+                      </div>
+                      <p className="text-[11px] text-neutral-400 ml-1">
+                        Este será o usuário usado na tela de login. Deixe em branco para usar o gerado pelo nome.
+                      </p>
+                    </div>
+                    <div className="space-y-1">
                       <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Senha {editingItem ? '(Deixe em branco para não alterar)' : 'Inicial'}</label>
-                      <input name="password" type="password" required={!editingItem} className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
+                      <input 
+                        name="password" 
+                        type="password" 
+                        required={!editingItem && !editingItem?.uid} 
+                        className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" 
+                        placeholder="Mínimo 6 caracteres"
+                      />
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Cargo</label>
@@ -660,6 +910,151 @@ export default function Registrations() {
                   className="flex-1 px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg shadow-red-100"
                 >
                   Excluir
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Auth Provider Not Allowed Info Modal */}
+      <AnimatePresence>
+        {showAuthNotAllowedModal && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAuthNotAllowedModal(false)} 
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.95, y: 20 }} 
+              className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl p-8 text-left"
+            >
+              <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600 mb-5">
+                <AlertTriangle size={28} />
+              </div>
+              <h3 className="text-xl font-bold text-neutral-900 mb-2">
+                Ativação de Senhas Necessária no Firebase
+              </h3>
+              <p className="text-neutral-600 text-sm mb-4 leading-relaxed">
+                Para cadastrar funcionários e permitir que eles acessem com usuário e senha, o provedor <strong>E-mail/senha</strong> precisa estar ativado no Firebase Authentication.
+              </p>
+
+              <div className="bg-neutral-50 rounded-2xl p-4 border border-neutral-200/80 mb-6 space-y-2.5 text-xs text-neutral-700">
+                <div className="font-semibold text-neutral-900 mb-1">Como ativar no Firebase Console (leva menos de 1 minuto):</div>
+                <div className="flex gap-2.5 items-start">
+                  <span className="w-5 h-5 bg-neutral-200 text-neutral-800 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">1</span>
+                  <span>Clique no botão verde abaixo para abrir o Console do Firebase na seção de autenticação.</span>
+                </div>
+                <div className="flex gap-2.5 items-start">
+                  <span className="w-5 h-5 bg-neutral-200 text-neutral-800 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">2</span>
+                  <span>Na lista de provedores, clique em <strong>E-mail/senha</strong> (Email/Password).</span>
+                </div>
+                <div className="flex gap-2.5 items-start">
+                  <span className="w-5 h-5 bg-neutral-200 text-neutral-800 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">3</span>
+                  <span>Ative a primeira opção (<strong>Ativar / Enable</strong>) e clique em <strong>Salvar (Save)</strong>.</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <a
+                  href={FIREBASE_CONSOLE_AUTH_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 transition-colors"
+                >
+                  <ExternalLink size={16} />
+                  Abrir Firebase Console (Sign-in method)
+                </a>
+
+                {pendingEmployee && (
+                  <button
+                    type="button"
+                    disabled={savingWithoutAuth}
+                    onClick={handleSaveEmployeeWithoutAuth}
+                    className="w-full px-5 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-xl font-medium text-sm transition-colors"
+                  >
+                    {savingWithoutAuth ? 'Salvando...' : 'Salvar funcionário na lista mesmo assim (sem login imediato)'}
+                  </button>
+                )}
+
+                <button 
+                  type="button" 
+                  onClick={() => setShowAuthNotAllowedModal(false)} 
+                  className="w-full px-5 py-2.5 text-neutral-500 hover:text-neutral-700 rounded-xl font-medium text-xs transition-colors text-center"
+                >
+                  Fechar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Auth Conflict Modal */}
+      <AnimatePresence>
+        {authConflictEmployee && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setAuthConflictEmployee(null)} 
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.95, y: 20 }} 
+              className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl p-8 text-left"
+            >
+              <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600 mb-5">
+                <AlertTriangle size={28} />
+              </div>
+              <h3 className="text-xl font-bold text-neutral-900 mb-2">
+                Conflito de Autenticação Identificado
+              </h3>
+              <p className="text-neutral-600 text-sm mb-4 leading-relaxed">
+                O usuário <strong className="font-mono text-emerald-700">@{authConflictEmployee.username}</strong> já está cadastrado no sistema ou associado a outro registro de login.
+              </p>
+
+              <div className="bg-neutral-50 rounded-2xl p-4 border border-neutral-200/80 mb-6 space-y-2 text-xs text-neutral-700">
+                <div className="font-semibold text-neutral-900">Como você deseja resolver?</div>
+                <p>
+                  Você pode usar a sugestão automática gerada pelo sistema para evitar conflitos, salvar o funcionário apenas no cadastro sem login imediato, ou fechar para alterar o usuário de acesso manualmente.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  disabled={resolvingConflict}
+                  onClick={handleResolveConflictWithSuggested}
+                  className="w-full px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 transition-colors"
+                >
+                  <CheckCircle2 size={16} />
+                  {resolvingConflict ? 'Resolvendo...' : `Usar o usuário sugerido: @${authConflictEmployee.suggestedUsername}`}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={savingWithoutAuth}
+                  onClick={handleSaveConflictWithoutAuth}
+                  className="w-full px-5 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-xl font-medium text-sm transition-colors"
+                >
+                  {savingWithoutAuth ? 'Salvando...' : 'Salvar funcionário na lista sem login por enquanto'}
+                </button>
+
+                <button 
+                  type="button" 
+                  onClick={() => setAuthConflictEmployee(null)} 
+                  className="w-full px-5 py-2.5 text-neutral-500 hover:text-neutral-700 rounded-xl font-medium text-xs transition-colors text-center"
+                >
+                  Fechar e alterar usuário manualmente
                 </button>
               </div>
             </motion.div>

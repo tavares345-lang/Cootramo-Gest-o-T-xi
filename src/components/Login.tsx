@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc, addDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import { Car, Mail, Lock, LogIn, MapPin } from 'lucide-react';
+import { Car, Lock, LogIn, MapPin, AlertTriangle, ExternalLink } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Sector } from '../types';
+import { getInternalEmail, getAuthErrorMessage, FIREBASE_CONSOLE_AUTH_URL } from '../lib/auth-helpers';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -12,6 +13,7 @@ export default function Login() {
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [selectedSectorId, setSelectedSectorId] = useState('');
   const [error, setError] = useState('');
+  const [isAuthNotAllowed, setIsAuthNotAllowed] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -63,46 +65,57 @@ export default function Login() {
     }
     setLoading(true);
     setError('');
+    setIsAuthNotAllowed(false);
     try {
       // Store sector in session for AuthContext to pick up if it's a new user
       sessionStorage.setItem('pendingSectorId', selectedSectorId);
 
       // Support simple name-based login by normalizing the input name
-      // If it's already an email (like the admin email), use it as is
-      const normalizedUsername = username.includes('@') 
-        ? username 
-        : username.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '.');
-      
-      const loginIdentifier = username.includes('@') ? username : `${normalizedUsername}@taxi.app`;
+      const loginIdentifier = getInternalEmail(username);
 
       const userCredential = await signInWithEmailAndPassword(auth, loginIdentifier, password);
       const user = userCredential.user;
       
-      // Check if selected sector is "Administração" and if user is admin
+      // Check user document for role and sector
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.data();
       const selectedSector = sectors.find(s => s.id === selectedSectorId);
-      if (selectedSector?.name === 'Administração') {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        const userData = userDoc.data();
-        if (userData?.role !== 'ADMINISTRADOR' && user.email !== 'tavares345@gmail.com') {
-          await auth.signOut();
-          sessionStorage.removeItem('pendingSectorId');
-          setError('Acesso ao setor Administração restrito a administradores.');
-          setLoading(false);
-          return;
+      
+      let finalSectorId = selectedSectorId;
+
+      // If user selected "Administração" but is not an admin, smoothly redirect them to their counter
+      if (selectedSector?.name === 'Administração' && userData?.role !== 'ADMINISTRADOR' && user.email !== 'tavares345@gmail.com') {
+        const counterSector = sectors.find(s => s.name !== 'Administração') || sectors[0];
+        if (counterSector) {
+          finalSectorId = counterSector.id;
         }
       }
 
       // Update sector in user profile if it exists
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists()) {
         await updateDoc(doc(db, 'users', user.uid), {
-          sectorId: selectedSectorId
+          sectorId: finalSectorId
         });
         sessionStorage.removeItem('pendingSectorId');
       }
     } catch (err: any) {
-      setError('Falha no login. Verifique suas credenciais.');
-      console.error(err);
+      console.error('Login error:', err);
+      const isTryingAdmin = username.toLowerCase().includes('tavares') || username.toLowerCase() === 'admin' || username.includes('tavares345');
+
+      if (err.code === 'auth/operation-not-allowed') {
+        setIsAuthNotAllowed(true);
+        setError('O provedor de login por "E-mail/senha" está desativado no Firebase Console.');
+      } else if (err.code === 'auth/account-exists-with-different-credential') {
+        setError('Conflito de autenticação: Esta conta foi criada com outro método. Se você costuma acessar com o Google, clique no botão Google abaixo.');
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+        if (isTryingAdmin) {
+          setError('Credenciais incorretas. Como administrador (tavares345@gmail.com), você pode entrar diretamente com o botão "Google" abaixo.');
+        } else {
+          setError('Usuário ou senha incorretos. Verifique suas credenciais ou fale com o administrador.');
+        }
+      } else {
+        setError(getAuthErrorMessage(err.code));
+      }
     } finally {
       setLoading(false);
     }
@@ -115,6 +128,7 @@ export default function Login() {
     }
     setLoading(true);
     setError('');
+    setIsAuthNotAllowed(false);
     try {
       const provider = new GoogleAuthProvider();
       // Store sector in session for AuthContext to pick up if it's a new user
@@ -132,8 +146,14 @@ export default function Login() {
         sessionStorage.removeItem('pendingSectorId');
       }
     } catch (err: any) {
-      setError('Falha no login com Google.');
-      console.error(err);
+      console.error('Google login error:', err);
+      if (err.code === 'auth/account-exists-with-different-credential') {
+        setError('Conflito de autenticação: Já existe uma conta cadastrada com este e-mail usando senha. Entre usando seu usuário e senha no formulário acima.');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setError('Login cancelado: A janela do Google foi fechada.');
+      } else {
+        setError(getAuthErrorMessage(err.code));
+      }
     } finally {
       setLoading(false);
     }
@@ -157,9 +177,30 @@ export default function Login() {
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl flex items-center gap-2">
-            <span className="w-1.5 h-1.5 bg-red-500 rounded-full shrink-0" />
-            {error}
+          <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl">
+            <div className="flex items-center gap-2 font-medium">
+              <span className="w-1.5 h-1.5 bg-red-500 rounded-full shrink-0" />
+              {error}
+            </div>
+            {isAuthNotAllowed && (
+              <div className="mt-3 pt-3 border-t border-red-200/60 text-xs text-neutral-600 space-y-2">
+                <p>
+                  Para habilitar o login de funcionários com usuário e senha, ative o provedor <strong>E-mail/senha</strong> no console do Firebase:
+                </p>
+                <a
+                  href={FIREBASE_CONSOLE_AUTH_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
+                >
+                  <ExternalLink size={14} />
+                  Ativar no Firebase Console
+                </a>
+                <p className="text-[11px] text-neutral-500">
+                  Como administrador, você também pode entrar diretamente clicando no botão <strong>Google</strong> abaixo.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
