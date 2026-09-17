@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { collection, addDoc, onSnapshot, Timestamp, doc, getDoc, runTransaction } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, Timestamp, doc, getDoc, runTransaction, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { useOfflineSync } from '../contexts/OfflineSyncContext';
+import { cacheCatalogData, getCachedCatalogData } from '../lib/offline-storage';
 import { Driver, Sector, PaymentMethod, Ride, Voucher, Destination } from '../types';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { useForm } from 'react-hook-form';
@@ -21,11 +23,21 @@ import {
   Ticket,
   ChevronDown,
   Clock,
-  DollarSign
+  DollarSign,
+  WifiOff,
+  HardDrive,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { QRCodeSVG } from 'qrcode.react';
+
+const getRideDate = (dateVal: any): Date => {
+  if (!dateVal) return new Date();
+  if (typeof dateVal.toDate === 'function') return dateVal.toDate();
+  if (typeof dateVal === 'number' || typeof dateVal === 'string') return new Date(dateVal);
+  return new Date();
+};
 
 const rideSchema = z.object({
   passengerName: z.string().optional(),
@@ -43,12 +55,24 @@ const FIXED_ORIGIN = "Aeroporto Internacional de Belo Horizonte";
 
 export default function RideSales() {
   const { profile } = useAuth();
+  const { 
+    isOnline, 
+    isSyncing, 
+    pendingCount, 
+    pendingSales, 
+    recordSaleWithOfflineFallback,
+    syncPendingSales 
+  } = useOfflineSync();
+
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [destinations, setDestinations] = useState<Destination[]>([]);
+  const [recentVouchers, setRecentVouchers] = useState<Voucher[]>([]);
+  const [recentRides, setRecentRides] = useState<Record<string, Ride>>({});
+  const [searchVoucherTerm, setSearchVoucherTerm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [successRide, setSuccessRide] = useState<{ ride: Ride; voucher: Voucher } | null>(null);
+  const [successRide, setSuccessRide] = useState<{ ride: Ride; voucher: Voucher; isOffline?: boolean } | null>(null);
   const [showDestList, setShowDestList] = useState(false);
 
   const { register, handleSubmit, watch, reset, formState: { errors }, setValue } = useForm<RideFormData>({
@@ -69,28 +93,81 @@ export default function RideSales() {
     }
   }, [profile, setValue]);
 
+  // 1. Preload reference catalogs from IndexedDB cache immediately (offline-first readiness)
+  useEffect(() => {
+    async function loadIndexedDBCache() {
+      try {
+        const [cachedDrivers, cachedSectors, cachedMethods, cachedDests] = await Promise.all([
+          getCachedCatalogData<Driver>('drivers'),
+          getCachedCatalogData<Sector>('sectors'),
+          getCachedCatalogData<PaymentMethod>('paymentMethods'),
+          getCachedCatalogData<Destination>('destinations')
+        ]);
+        if (cachedDrivers && cachedDrivers.length > 0) setDrivers(cachedDrivers);
+        if (cachedSectors && cachedSectors.length > 0) setSectors(cachedSectors);
+        if (cachedMethods && cachedMethods.length > 0) setPaymentMethods(cachedMethods);
+        if (cachedDests && cachedDests.length > 0) setDestinations(cachedDests);
+      } catch (err) {
+        console.warn('Erro ao carregar cache do IndexedDB:', err);
+      }
+    }
+    loadIndexedDBCache();
+  }, []);
+
+  // 2. Listen to Firestore real-time updates and update IndexedDB cache
   useEffect(() => {
     if (!profile) return;
 
     const unsubDrivers = onSnapshot(collection(db, 'drivers'), (snapshot) => {
-      setDrivers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver)).filter(d => d.active));
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver)).filter(d => d.active);
+      setDrivers(list);
+      cacheCatalogData('drivers', list);
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'drivers');
+      console.warn('Drivers snapshot warning (offline):', error);
     });
+
     const unsubSectors = onSnapshot(collection(db, 'sectors'), (snapshot) => {
-      setSectors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Sector)));
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Sector));
+      setSectors(list);
+      cacheCatalogData('sectors', list);
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'sectors');
+      console.warn('Sectors snapshot warning (offline):', error);
     });
+
     const unsubMethods = onSnapshot(collection(db, 'paymentMethods'), (snapshot) => {
-      setPaymentMethods(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentMethod)));
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentMethod));
+      setPaymentMethods(list);
+      cacheCatalogData('paymentMethods', list);
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'paymentMethods');
+      console.warn('PaymentMethods snapshot warning (offline):', error);
     });
+
     const unsubDestinations = onSnapshot(collection(db, 'destinations'), (snapshot) => {
-      setDestinations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Destination)));
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Destination));
+      setDestinations(list);
+      cacheCatalogData('destinations', list);
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'destinations');
+      console.warn('Destinations snapshot warning (offline):', error);
+    });
+
+    // Recent vouchers query for quick reprint/status
+    const vQuery = query(collection(db, 'vouchers'), orderBy('createdAt', 'desc'), limit(15));
+    const unsubRecentVouchers = onSnapshot(vQuery, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Voucher));
+      setRecentVouchers(list);
+    }, (error) => {
+      console.warn('Recent vouchers snapshot warning (offline):', error);
+    });
+
+    const rQuery = query(collection(db, 'rides'), orderBy('createdAt', 'desc'), limit(15));
+    const unsubRecentRides = onSnapshot(rQuery, (snapshot) => {
+      const map: Record<string, Ride> = {};
+      snapshot.docs.forEach(doc => {
+        map[doc.id] = { id: doc.id, ...doc.data() } as Ride;
+      });
+      setRecentRides(map);
+    }, (error) => {
+      console.warn('Recent rides snapshot warning (offline):', error);
     });
 
     return () => {
@@ -98,8 +175,10 @@ export default function RideSales() {
       unsubSectors();
       unsubMethods();
       unsubDestinations();
+      unsubRecentVouchers();
+      unsubRecentRides();
     };
-  }, []);
+  }, [profile]);
 
   const filteredDestinations = destinations.filter(d => 
     d.name.toLowerCase().includes(destinationInput.toLowerCase())
@@ -124,37 +203,34 @@ export default function RideSales() {
     setLoading(true);
     try {
       const { feeAmount, fixedFee, netValue } = calculateFees();
-      const createdAt = Timestamp.now();
       
-      const rideData = {
-        ...data,
+      // Use offline-first recorder: persists to IndexedDB first, then uploads to Firestore if online
+      const result = await recordSaleWithOfflineFallback({
+        passengerName: data.passengerName,
+        origin: data.origin,
+        destination: data.destination,
+        value: data.value,
+        paymentMethodId: data.paymentMethodId,
         feeAmount: feeAmount + fixedFee,
         netValue,
         sellerId: profile?.uid || '',
-        status: 'pending',
-        createdAt,
-      };
-
-      const rideRef = await addDoc(collection(db, 'rides'), rideData);
-      
-      // Generate Voucher
-      const voucherNumber = `V-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
-      const voucherData = {
-        rideId: rideRef.id,
-        voucherNumber,
-        status: 'active',
-        createdAt,
-      };
-      
-      const voucherRef = await addDoc(collection(db, 'vouchers'), voucherData);
-      
-      setSuccessRide({ 
-        ride: { id: rideRef.id, ...rideData } as Ride, 
-        voucher: { id: voucherRef.id, ...voucherData } as Voucher 
+        sectorId: data.sectorId,
+        driverId: data.driverId || undefined,
       });
-      reset();
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'rides/vouchers');
+
+      setSuccessRide({ 
+        ride: result.ride, 
+        voucher: result.voucher,
+        isOffline: result.isOffline 
+      });
+
+      reset({
+        sectorId: profile?.sectorId || '',
+        origin: FIXED_ORIGIN,
+      });
+    } catch (error: any) {
+      console.error('Erro ao registrar venda:', error);
+      alert('Ocorreu um erro ao salvar a venda: ' + (error?.message || 'Tente novamente.'));
     } finally {
       setLoading(false);
     }
@@ -178,13 +254,48 @@ export default function RideSales() {
             <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center">
               <Plus size={24} />
             </div>
-            <h2 className="text-xl font-bold text-neutral-900">Nova Venda de Corrida</h2>
+            <div>
+              <h2 className="text-xl font-bold text-neutral-900">Nova Venda de Corrida</h2>
+              <p className="text-xs text-neutral-400">Emissão de vouchers com persistência local e nuvem</p>
+            </div>
           </div>
           <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-neutral-50 text-neutral-500 rounded-lg border border-neutral-100">
             <Clock size={14} />
             <span className="text-[10px] font-bold uppercase tracking-wider">{format(new Date(), "dd/MM/yyyy HH:mm")}</span>
           </div>
         </div>
+
+        {/* Offline Banner Indicator */}
+        {!isOnline && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
+            <WifiOff size={20} className="text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-xs">
+              <p className="font-bold text-amber-900">Modo Offline Ativo (Persistência no IndexedDB)</p>
+              <p className="text-amber-700 mt-0.5 leading-relaxed">
+                Sinal instável ou sem internet. As vendas continuarão sendo geradas e salvas no banco de dados local. Você pode imprimir e entregar os vouchers normalmente. A sincronização com o Firestore ocorrerá automaticamente assim que o sinal for restabelecido.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Pending Offline Sync Notice when online */}
+        {isOnline && pendingCount > 0 && (
+          <div className="mb-6 p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-amber-900">
+              <HardDrive size={16} className="text-amber-600 shrink-0" />
+              <span>Você possui <strong>{pendingCount} {pendingCount === 1 ? 'venda gravada no IndexedDB' : 'vendas gravadas no IndexedDB'}</strong> aguardando envio ao Firestore.</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => syncPendingSales()}
+              disabled={isSyncing}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold rounded-lg transition-colors flex items-center gap-1.5 shrink-0"
+            >
+              <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+              <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar Agora'}</span>
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="space-y-8">
@@ -423,11 +534,23 @@ export default function RideSales() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm flex flex-col items-center"
             >
-              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-6">
-                <CheckCircle2 size={40} />
+              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4">
+                <CheckCircle2 size={36} />
               </div>
-              <h2 className="text-2xl font-bold text-neutral-900 mb-2">Venda Realizada!</h2>
-              <p className="text-neutral-500 text-center mb-8">O voucher foi gerado com sucesso e está pronto para impressão.</p>
+              <h2 className="text-2xl font-bold text-neutral-900 mb-1">Venda Realizada!</h2>
+              <p className="text-neutral-500 text-center text-xs mb-4">O voucher foi gerado com sucesso e está pronto para impressão.</p>
+
+              {successRide.isOffline && (
+                <div className="w-full mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-left">
+                  <HardDrive size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900">Salvo no IndexedDB (Modo Offline)</h4>
+                    <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                      Sinal instável ou desconectado. A venda está gravada com segurança no banco de dados local do seu navegador. O voucher pode ser impresso e entregue agora ao passageiro. O envio ao Firestore ocorrerá automaticamente quando o sinal for restabelecido.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Voucher Preview & Print Sections */}
               <div id="voucher-print" className="w-full space-y-8">
@@ -504,7 +627,7 @@ export default function RideSales() {
                     </div>
                   </div>
                   <p className="text-[8px] text-neutral-400 italic pt-2">
-                    {format(successRide.ride.createdAt.toDate(), "dd/MM/yyyy HH:mm:ss")}
+                    {format(getRideDate(successRide.ride.createdAt), "dd/MM/yyyy HH:mm:ss")}
                   </p>
                 </div>
 
@@ -538,7 +661,7 @@ export default function RideSales() {
                   </div>
 
                   <p className="text-[9px] text-neutral-500 font-bold">
-                    Horário da Venda: {format(successRide.ride.createdAt.toDate(), "HH:mm:ss")} - {format(successRide.ride.createdAt.toDate(), "dd/MM/yyyy")}
+                    Horário da Venda: {format(getRideDate(successRide.ride.createdAt), "HH:mm:ss")} - {format(getRideDate(successRide.ride.createdAt), "dd/MM/yyyy")}
                   </p>
                 </div>
               </div>
@@ -572,21 +695,100 @@ export default function RideSales() {
           )}
         </AnimatePresence>
 
-        {/* Quick Search / Recent */}
-        <div className="bg-white p-6 rounded-3xl border border-neutral-200 shadow-sm flex-1">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wider">Pesquisa Rápida</h3>
+        {/* Quick Search & Recent Sales (Includes Offline Pending Sales) */}
+        <div className="bg-white p-6 rounded-3xl border border-neutral-200 shadow-sm flex-1 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wider">Consultas & Recentes</h3>
+              <p className="text-[10px] text-neutral-400">Reimprimir ou conferir vouchers recentes</p>
+            </div>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={14} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={13} />
               <input 
                 type="text" 
-                placeholder="Nº Voucher..." 
-                className="pl-8 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-[10px] outline-none focus:ring-2 focus:ring-emerald-500 w-32"
+                value={searchVoucherTerm}
+                onChange={(e) => setSearchVoucherTerm(e.target.value)}
+                placeholder="Nº Voucher ou Destino..." 
+                className="pl-8 pr-3 py-1.5 bg-neutral-50 border border-neutral-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-emerald-500 w-40"
               />
             </div>
           </div>
-          <div className="space-y-4">
-            <p className="text-[10px] text-neutral-400 text-center py-8 italic">Use a pesquisa para reimprimir vouchers ou consultar status.</p>
+
+          <div className="space-y-3 overflow-y-auto max-h-[360px] pr-1">
+            {/* 1. Show Offline Pending Sales First */}
+            {pendingSales.map((item) => (
+              <div 
+                key={item.localId}
+                className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl hover:bg-amber-50 transition-colors flex items-center justify-between gap-3 text-xs"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-bold text-amber-900">#{item.voucher.voucherNumber}</span>
+                    <span className="px-1.5 py-0.5 bg-amber-200/70 text-amber-800 text-[9px] font-bold rounded">OFFLINE</span>
+                  </div>
+                  <p className="text-neutral-700 truncate font-medium">{item.ride.destination}</p>
+                  <p className="text-[10px] text-neutral-400">
+                    R$ {item.ride.value.toFixed(2)} • {format(getRideDate(item.ride.createdAt), "dd/MM HH:mm")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSuccessRide({ ride: item.ride, voucher: item.voucher, isOffline: true })}
+                  className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-lg transition-colors shrink-0"
+                >
+                  Ver / Imprimir
+                </button>
+              </div>
+            ))}
+
+            {/* 2. Show Filtered or Recent Cloud Vouchers */}
+            {recentVouchers
+              .filter(v => {
+                if (!searchVoucherTerm) return true;
+                const term = searchVoucherTerm.toLowerCase();
+                const matchNumber = v.voucherNumber.toLowerCase().includes(term);
+                const ride = recentRides[v.rideId];
+                const matchDest = ride?.destination?.toLowerCase().includes(term);
+                const matchPassenger = ride?.passengerName?.toLowerCase().includes(term);
+                return matchNumber || matchDest || matchPassenger;
+              })
+              .map(v => {
+                const ride = recentRides[v.rideId];
+                return (
+                  <div
+                    key={v.id}
+                    className="p-3 bg-neutral-50 hover:bg-neutral-100 border border-neutral-100 rounded-xl transition-colors flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="font-bold text-neutral-900">#{v.voucherNumber}</span>
+                        <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                          {v.status === 'active' ? 'ATIVO' : v.status}
+                        </span>
+                      </div>
+                      <p className="text-neutral-600 truncate">{ride?.destination || 'Carregando destino...'}</p>
+                      <p className="text-[10px] text-neutral-400">
+                        {ride ? `R$ ${ride.value.toFixed(2)} • ` : ''}{v.createdAt ? format(getRideDate(v.createdAt), "dd/MM HH:mm") : ''}
+                      </p>
+                    </div>
+                    {ride && (
+                      <button
+                        type="button"
+                        onClick={() => setSuccessRide({ ride, voucher: v, isOffline: false })}
+                        className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-white font-bold text-[10px] rounded-lg transition-colors shrink-0"
+                      >
+                        Reimprimir
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+            {pendingSales.length === 0 && recentVouchers.length === 0 && (
+              <p className="text-[11px] text-neutral-400 text-center py-8 italic">
+                Nenhum voucher recente registrado no momento.
+              </p>
+            )}
           </div>
         </div>
       </div>

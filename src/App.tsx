@@ -37,6 +37,7 @@ import Payments from './components/Payments';
 import Reports from './components/Reports';
 import MonthlyAnalysis from './components/MonthlyAnalysis';
 import Login from './components/Login';
+import OfflineSyncManager from './components/OfflineSyncManager';
 
 type Page = 'dashboard' | 'sales' | 'vouchers' | 'registrations' | 'payments' | 'reports' | 'analysis';
 
@@ -272,7 +273,8 @@ export default function App() {
             </h1>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 md:gap-4">
+            <OfflineSyncManager />
             {currentSector && (
               <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100">
                 <MapPin size={14} />
