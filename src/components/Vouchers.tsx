@@ -17,7 +17,7 @@ import {
   ChevronRight,
   Trash2
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -37,6 +37,7 @@ export default function Vouchers() {
   const [drivers, setDrivers] = useState<Record<string, Driver>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'cancelled' | 'redeemed'>('all');
+  const [dateScope, setDateScope] = useState<'all' | 'today'>('all');
   const [loading, setLoading] = useState(true);
   const [selectedVoucher, setSelectedVoucher] = useState<{ voucher: Voucher; ride: Ride } | null>(null);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -89,7 +90,14 @@ export default function Vouchers() {
     }
     const matchesSearch = v.voucherNumber.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || v.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    
+    let matchesDate = true;
+    if (dateScope === 'today') {
+      const vDate = v.createdAt?.toDate ? v.createdAt.toDate() : (v.createdAt ? new Date(v.createdAt) : null);
+      matchesDate = vDate ? isSameDay(vDate, new Date()) : false;
+    }
+
+    return matchesSearch && matchesStatus && matchesDate;
   });
 
   const LOGO_URL = "https://storage.googleapis.com/static-content-dev-ais-studio/clzzlitvlpv7rxhba/258673167423/attachments/97960383-722d-427f-9477-80922437651a.png";
@@ -161,8 +169,17 @@ export default function Vouchers() {
               Cancelados
             </button>
           </div>
-          <button className="flex items-center gap-2 px-4 py-3 bg-white border border-neutral-200 rounded-2xl text-neutral-600 font-medium hover:bg-neutral-50 transition-all shadow-sm">
-            <Calendar size={18} />
+          <button 
+            id="btn-filter-today"
+            onClick={() => setDateScope(prev => prev === 'today' ? 'all' : 'today')}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold transition-all shadow-sm border text-xs cursor-pointer",
+              dateScope === 'today'
+                ? "bg-emerald-600 text-white border-emerald-600 shadow-emerald-100"
+                : "bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-50"
+            )}
+          >
+            <Calendar size={16} />
             Hoje
           </button>
         </div>

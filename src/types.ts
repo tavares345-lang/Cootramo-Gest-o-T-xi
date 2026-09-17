@@ -32,6 +32,8 @@ export interface Driver {
 export interface Sector {
   id: string;
   name: string;
+  code?: string;
+  active?: boolean;
 }
 
 export interface PaymentMethod {

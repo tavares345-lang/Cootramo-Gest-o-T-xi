@@ -12,9 +12,11 @@ import {
   ArrowDownRight,
   MapPin,
   Clock,
-  ChevronLeft
+  ChevronLeft,
+  ChevronRight,
+  Filter
 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -23,11 +25,13 @@ export default function MonthlyAnalysis({ onBack }: { onBack?: () => void }) {
   const [rides, setRides] = useState<Ride[]>([]);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentMonth] = useState(new Date());
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedMonthInput, setSelectedMonthInput] = useState(format(new Date(), 'yyyy-MM'));
 
   useEffect(() => {
     if (!profile || profile.role !== 'ADMINISTRADOR') return;
 
+    setLoading(true);
     const start = startOfMonth(currentMonth);
     const end = endOfMonth(currentMonth);
 
@@ -41,6 +45,8 @@ export default function MonthlyAnalysis({ onBack }: { onBack?: () => void }) {
     const unsubRides = onSnapshot(q, (snapshot) => {
       setRides(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ride)));
       setLoading(false);
+    }, () => {
+      setLoading(false);
     });
 
     const unsubSectors = onSnapshot(collection(db, 'sectors'), (snapshot) => {
@@ -52,6 +58,28 @@ export default function MonthlyAnalysis({ onBack }: { onBack?: () => void }) {
       unsubSectors();
     };
   }, [profile, currentMonth]);
+
+  const handleApplyFilter = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (selectedMonthInput) {
+      const [year, month] = selectedMonthInput.split('-').map(Number);
+      if (year && month) {
+        setCurrentMonth(new Date(year, month - 1, 1));
+      }
+    }
+  };
+
+  const handlePreviousMonth = () => {
+    const prev = subMonths(currentMonth, 1);
+    setCurrentMonth(prev);
+    setSelectedMonthInput(format(prev, 'yyyy-MM'));
+  };
+
+  const handleNextMonth = () => {
+    const next = addMonths(currentMonth, 1);
+    setCurrentMonth(next);
+    setSelectedMonthInput(format(next, 'yyyy-MM'));
+  };
 
   const LOGO_URL = "https://storage.googleapis.com/static-content-dev-ais-studio/clzzlitvlpv7rxhba/258673167423/attachments/97960383-722d-427f-9477-80922437651a.png";
 
@@ -131,6 +159,69 @@ export default function MonthlyAnalysis({ onBack }: { onBack?: () => void }) {
           <Printer size={18} />
           Imprimir Relatório
         </button>
+      </div>
+
+      {/* Report Filter & Period Selector */}
+      <div id="monthly-analysis-filters" className="bg-white p-5 rounded-3xl border border-neutral-200 shadow-sm print:hidden">
+        <form onSubmit={handleApplyFilter} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-neutral-600 font-bold text-xs uppercase tracking-wider">
+              <Calendar size={18} className="text-emerald-600" />
+              <span>Período do Relatório:</span>
+            </div>
+
+            <div className="flex items-center bg-neutral-100 rounded-xl p-1 border border-neutral-200">
+              <button
+                type="button"
+                id="btn-prev-month"
+                onClick={handlePreviousMonth}
+                title="Mês anterior"
+                aria-label="Mês anterior"
+                className="p-1.5 hover:bg-white text-neutral-600 hover:text-neutral-900 rounded-lg transition-all"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              
+              <input 
+                type="month"
+                id="period-month-selector"
+                name="month"
+                aria-label="Selecionar período mensal"
+                value={selectedMonthInput}
+                onChange={(e) => {
+                  setSelectedMonthInput(e.target.value);
+                  const [y, m] = e.target.value.split('-').map(Number);
+                  if (y && m) {
+                    setCurrentMonth(new Date(y, m - 1, 1));
+                  }
+                }}
+                className="bg-transparent text-sm font-bold text-neutral-800 px-3 py-1 outline-none cursor-pointer"
+              />
+
+              <button
+                type="button"
+                id="btn-next-month"
+                onClick={handleNextMonth}
+                title="Próximo mês"
+                aria-label="Próximo mês"
+                className="p-1.5 hover:bg-white text-neutral-600 hover:text-neutral-900 rounded-lg transition-all"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              id="btn-apply-month-filter"
+              className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-all shadow-md shadow-emerald-100 text-sm"
+            >
+              <Filter size={16} />
+              Filtrar
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* Stats Grid */}

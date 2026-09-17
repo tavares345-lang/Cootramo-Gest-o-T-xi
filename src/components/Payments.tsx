@@ -31,6 +31,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 import { useAuth } from '../contexts/AuthContext';
+import { ensureDefaultSeedData } from '../lib/seed-data';
 
 export default function Payments() {
   const { profile } = useAuth();
@@ -58,10 +59,9 @@ export default function Payments() {
   useEffect(() => {
     if (!profile) return;
 
-    let qRides = query(collection(db, 'rides'));
-    if (profile?.role !== 'ADMINISTRADOR' && profile?.sectorId) {
-      qRides = query(qRides, where('sectorId', '==', profile.sectorId));
-    }
+    ensureDefaultSeedData(profile.uid, profile.sectorId);
+
+    const qRides = query(collection(db, 'rides'));
 
     const unsubRides = onSnapshot(qRides, (snapshot) => {
       setRides(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ride)));
@@ -342,7 +342,77 @@ export default function Payments() {
     const pendingAmount = driverRides.filter(r => r.status === 'pending').reduce((acc, r) => acc + r.netValue, 0);
     const paidAmount = driverRides.filter(r => r.status === 'paid').reduce((acc, r) => acc + r.netValue, 0);
     return { ...driver, pendingAmount, paidAmount };
-  }).filter(d => d.pendingAmount > 0 || d.paidAmount > 0);
+  }).filter(d => {
+    const hasBalance = d.pendingAmount > 0 || d.paidAmount > 0;
+    if (!hasBalance) return false;
+    const cleanSearch = searchTerm.trim().toLowerCase();
+    if (!cleanSearch) return true;
+    return d.name.toLowerCase().includes(cleanSearch) || 
+           (d.unitNumber && d.unitNumber.toLowerCase().includes(cleanSearch)) || 
+           (d.licensePlate && d.licensePlate.toLowerCase().includes(cleanSearch));
+  });
+
+  // Unified launches for Lançamentos Recentes
+  const settlementLaunches = settlements.map(s => {
+    const driver = drivers.find(d => d.id === s.driverId);
+    return {
+      id: s.id,
+      isSettlement: true,
+      settlementNumber: s.settlementNumber,
+      driverId: s.driverId,
+      driverName: driver?.name || 'Motorista',
+      unitNumber: driver?.unitNumber || '',
+      licensePlate: driver?.licensePlate || '',
+      vouchersSummary: `${s.voucherIds.length} vouchers`,
+      totalAmount: s.totalAmount,
+      status: s.status,
+      date: s.createdAt?.toDate ? s.createdAt.toDate() : new Date(),
+      rawSettlement: s,
+    };
+  });
+
+  const voucherIdsInSettlements = new Set<string>();
+  settlements.forEach(s => s.voucherIds.forEach(id => voucherIdsInSettlements.add(id)));
+
+  const standaloneRideLaunches = rides
+    .filter(r => {
+      const v = vouchers.find(voc => voc.rideId === r.id);
+      return !v || !voucherIdsInSettlements.has(v.id);
+    })
+    .map(r => {
+      const driver = drivers.find(d => d.id === r.driverId);
+      const v = vouchers.find(voc => voc.rideId === r.id);
+      return {
+        id: `ride-${r.id}`,
+        isSettlement: false,
+        settlementNumber: v ? `VOU-${v.voucherNumber}` : `COR-${r.id.slice(-6).toUpperCase()}`,
+        driverId: r.driverId,
+        driverName: driver?.name || 'Motorista',
+        unitNumber: driver?.unitNumber || '',
+        licensePlate: driver?.licensePlate || '',
+        vouchersSummary: v ? `Voucher #${v.voucherNumber}` : (r.destination ? `Corrida: ${r.destination}` : 'Corrida Avulsa'),
+        totalAmount: r.netValue,
+        status: r.status,
+        date: r.createdAt?.toDate ? r.createdAt.toDate() : new Date(),
+        rawRide: r,
+      };
+    });
+
+  const allLaunches = [...settlementLaunches, ...standaloneRideLaunches].sort((a, b) => 
+    b.date.getTime() - a.date.getTime()
+  );
+
+  const filteredLaunches = allLaunches.filter((launch) => {
+    const matchesStatus = statusFilter === 'all' || launch.status === statusFilter;
+    const cleanSearch = searchTerm.trim().toLowerCase();
+    const matchesSearch = !cleanSearch ||
+      launch.driverName.toLowerCase().includes(cleanSearch) ||
+      launch.unitNumber.toLowerCase().includes(cleanSearch) ||
+      launch.licensePlate.toLowerCase().includes(cleanSearch) ||
+      launch.settlementNumber.toLowerCase().includes(cleanSearch) ||
+      launch.vouchersSummary.toLowerCase().includes(cleanSearch);
+    return matchesStatus && matchesSearch;
+  });
 
   const reportData = settlements
     .filter(s => s.status === 'paid' && s.paidAt)
@@ -603,6 +673,12 @@ export default function Payments() {
           </div>
           <div className="flex gap-2 p-1 bg-neutral-200/50 rounded-xl">
             <button 
+              onClick={() => setStatusFilter(prev => prev === 'all' ? 'pending' : 'all')}
+              className={cn("px-4 py-2 rounded-lg text-xs font-bold transition-all", statusFilter === 'all' ? "bg-white text-emerald-600 shadow-sm" : "text-neutral-500")}
+            >
+              Todos
+            </button>
+            <button 
               onClick={() => setStatusFilter('pending')}
               className={cn("px-4 py-2 rounded-lg text-xs font-bold transition-all", statusFilter === 'pending' ? "bg-white text-emerald-600 shadow-sm" : "text-neutral-500")}
             >
@@ -639,45 +715,54 @@ export default function Payments() {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
-              {settlements.filter(s => statusFilter === 'all' || s.status === statusFilter).map((settlement) => {
-                const driver = drivers.find(d => d.id === settlement.driverId);
+              {filteredLaunches.map((launch) => {
                 return (
-                  <tr key={settlement.id} className="hover:bg-neutral-50/50 transition-colors">
+                  <tr key={launch.id} className="hover:bg-neutral-50/50 transition-colors">
                     <td className="px-6 py-4">
-                      <span className="text-sm font-black text-neutral-900">{settlement.settlementNumber}</span>
+                      <span className="text-sm font-black text-neutral-900">{launch.settlementNumber}</span>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
-                        <span className="text-sm font-bold text-neutral-900">{driver?.unitNumber} - {driver?.name}</span>
-                        <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider">{driver?.licensePlate}</span>
+                        <span className="text-sm font-bold text-neutral-900">
+                          {launch.unitNumber ? `${launch.unitNumber} - ` : ''}{launch.driverName}
+                        </span>
+                        <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider">{launch.licensePlate}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm text-neutral-600">{settlement.voucherIds.length} vouchers</span>
+                      <span className="text-sm text-neutral-600">{launch.vouchersSummary}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm font-black text-emerald-600">R$ {settlement.totalAmount.toFixed(2)}</span>
+                      <span className="text-sm font-black text-emerald-600">R$ {launch.totalAmount.toFixed(2)}</span>
                     </td>
                     <td className="px-6 py-4">
                       <div className={cn(
                         "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                        settlement.status === 'paid' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                        launch.status === 'paid' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
                       )}>
-                        {settlement.status === 'paid' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
-                        {settlement.status === 'paid' ? 'Pago' : 'Pendente'}
+                        {launch.status === 'paid' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                        {launch.status === 'paid' ? 'Pago' : 'Pendente'}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right space-x-2">
-                      <button 
-                        onClick={() => handlePrintSettlement(settlement)}
-                        className="p-2 hover:bg-neutral-100 text-neutral-400 hover:text-neutral-900 rounded-lg transition-all"
-                        title="Imprimir"
-                      >
-                        <Printer size={18} />
-                      </button>
-                      {settlement.status === 'pending' && (
+                      {launch.isSettlement && (
                         <button 
-                          onClick={() => handlePaySettlement(settlement)}
+                          onClick={() => handlePrintSettlement(launch.rawSettlement!)}
+                          className="p-2 hover:bg-neutral-100 text-neutral-400 hover:text-neutral-900 rounded-lg transition-all"
+                          title="Imprimir"
+                        >
+                          <Printer size={18} />
+                        </button>
+                      )}
+                      {launch.status === 'pending' && (
+                        <button 
+                          onClick={() => {
+                            if (launch.isSettlement && launch.rawSettlement) {
+                              handlePaySettlement(launch.rawSettlement);
+                            } else if (launch.rawRide) {
+                              handleMarkAsPaid(launch.rawRide.id);
+                            }
+                          }}
                           className="p-2 hover:bg-emerald-50 text-neutral-400 hover:text-emerald-600 rounded-lg transition-all"
                           title="Marcar como Pago"
                         >
@@ -688,6 +773,13 @@ export default function Payments() {
                   </tr>
                 );
               })}
+              {filteredLaunches.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-neutral-400 italic text-sm">
+                    Nenhum lançamento encontrado{searchTerm ? ` para "${searchTerm}"` : ''}.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

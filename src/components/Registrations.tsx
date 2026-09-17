@@ -122,6 +122,11 @@ export default function Registrations() {
     if (activeTab === 'destinations' && data.value) {
       data.value = parseFloat(data.value as string) as any;
     }
+    if (activeTab === 'sectors') {
+      if (typeof data.active === 'string') {
+        data.active = (data.active === 'true') as any;
+      }
+    }
 
     try {
       if (activeTab === 'employees' && !editingItem && data.name && data.password) {
@@ -254,7 +259,8 @@ export default function Registrations() {
         await updateDoc(docRef, updateData);
       } else {
         const { password, customUsername, ...createData } = data;
-        await addDoc(collection(db, activeTab), { ...createData, active: true });
+        const initialActive = createData.active !== undefined ? createData.active : true;
+        await addDoc(collection(db, activeTab), { ...createData, active: initialActive });
       }
       setIsModalOpen(false);
       setEditingItem(null);
@@ -606,6 +612,9 @@ export default function Registrations() {
                     <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-wider">Placa</th>
                   </>
                 )}
+                {activeTab === 'sectors' && (
+                  <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-wider">Código</th>
+                )}
                 {activeTab === 'employees' && <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-wider">Cargo</th>}
                 {activeTab === 'paymentMethods' && (
                   <>
@@ -653,7 +662,6 @@ export default function Registrations() {
                   </td>
                 </tr>
               ))}
-              {/* Similar rows for other tabs... simplified for brevity */}
               {activeTab === 'sectors' && sectors.map((item) => (
                 <tr key={item.id} className="hover:bg-neutral-50/50 transition-colors">
                   <td className="px-6 py-4">
@@ -664,7 +672,16 @@ export default function Registrations() {
                       <span className="font-bold text-neutral-900">{item.name}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4">-</td>
+                  <td className="px-6 py-4 text-sm font-mono text-neutral-600">{item.code || '-'}</td>
+                  <td className="px-6 py-4">
+                    <button onClick={() => toggleStatus(item)} className={cn(
+                      "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider cursor-pointer",
+                      item.active !== false ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                    )}>
+                      {item.active !== false ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+                      {item.active !== false ? 'Ativo' : 'Inativo'}
+                    </button>
+                  </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button onClick={() => openEditModal(item)} className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-900"><Edit2 size={16} /></button>
@@ -838,6 +855,30 @@ export default function Registrations() {
                         <option value="ADMINISTRADOR">ADMINISTRADOR</option>
                         <option value="VENDEDOR">VENDEDOR</option>
                         <option value="GERENTE">GERENTE</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+                {activeTab === 'sectors' && (
+                  <>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Código</label>
+                      <input 
+                        name="code" 
+                        defaultValue={editingItem?.code} 
+                        placeholder="Ex: SET-01" 
+                        className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider ml-1">Status</label>
+                      <select 
+                        name="active" 
+                        defaultValue={editingItem?.active !== undefined ? (editingItem.active ? "true" : "false") : "true"}
+                        className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
+                      >
+                        <option value="true">Ativo</option>
+                        <option value="false">Inativo</option>
                       </select>
                     </div>
                   </>
